@@ -21,3 +21,29 @@ export default function DevSmoke(){
   }, []);
   return <div aria-hidden className="sr-only" data-test="smoke">ok</div>;
 }
+
+// try {
+// const baseline = { ts: 0, keypoints: [
+// { name: "head", x: 0, y: 0 },
+// { name: "neck", x: 0, y: 0.05 },
+// { name: "shoulder_l", x: -0.1, y: 0 },
+// { name: "shoulder_r", x: 0.1, y: 0 },
+// { name: "hip_l", x: -0.1, y: 0.2 },
+// { name: "hip_r", x: 0.1, y: 0.2 },
+// ] };
+// const current = { ts: 1, keypoints: [
+// { name: "head", x: 0.05, y: 0 }, // 전방 0.05 이동
+// { name: "neck", x: 0, y: 0.05 },
+// { name: "shoulder_l", x: -0.1, y: 0 },
+// { name: "shoulder_r", x: 0.1, y: 0 },
+// { name: "hip_l", x: -0.1, y: 0.2 },
+// { name: "hip_r", x: 0.1, y: 0.2 },
+// ] };
+// const { composeFeatureVector } = await import("@/lib/poseFeatures");
+// const f = composeFeatureVector(baseline as any, current as any);
+// console.assert(f.length === 21, "feature length should be 21");
+// console.assert(f[0] > 0, "head dx should be positive for forward head");
+// console.log("[PostureCare] feature test passed ✅", f.slice(0,6));
+// } catch (e) {
+// console.warn("[PostureCare] feature test skipped", e);
+// }

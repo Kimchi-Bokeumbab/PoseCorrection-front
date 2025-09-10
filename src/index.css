@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn 스타일 토큰 흉내 (색감/회색톤용) */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+  }
+  body { @apply bg-background text-foreground; }
+}
+@layer utilities {
+  .bg-background { background-color: hsl(var(--background)); }
+  .text-foreground { color: hsl(var(--foreground)); }
+  .bg-muted { background-color: hsl(var(--muted)); }
+  .text-muted-foreground { color: hsl(var(--muted-foreground)); }
+}

@@ -1,0 +1,44 @@
+# Node / Package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json.#*    # 손상된 lock 임시파일
+
+# Build outputs
+dist/
+dist-*/                  # dist-electron 등
+out/
+build/
+coverage/
+.vite/
+.turbo/
+
+# Electron builder / release artifacts
+release/
+*.dmg
+*.exe
+*.msi
+*.zip
+*.blockmap
+*.7z
+
+# Env / secrets
+.env
+.env.*.local
+.env.local
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json  # 팀용 추천 확장 유지하고 싶으면 제외 해제
+.idea/
+*.iml
+
+# Logs
+*.log
+logs/
