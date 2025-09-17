@@ -7,18 +7,21 @@ import SectionHeader from "@/components/SectionHeader";
 import type { PoseFrame } from "@/lib/model";
 import { usePoseStream } from "@/hooks/usePoseStream";
 import PoseOverlay from "@/components/PoseOverlay";
+import { Switch } from "@/components/ui/switch";              // ✅ 추가
+import { setBaseline } from "@/state/baseline";               // ✅ 추가
 
-export default function OnboardingStep({ onNext }: { onNext: (opts: { baseline: boolean }) => void }) {
+export default function OnboardingStep({ onNext }: { onNext: (opts: { baseline: boolean; frame?: PoseFrame }) => void }) {
   const [stepIdx, setStepIdx] = useState(0);
   const [baselineCaptured, setBaselineCaptured] = useState(false);
   const [baselineFrame, setBaselineFrame] = useState<PoseFrame | null>(null);
+  const [saveDefault, setSaveDefault] = useState(true);       // ✅ 기본 저장 ON
 
   const { videoRef, isRunning, landmarkerReady, startPreview, startDetect, stop, lastFrame } = usePoseStream();
 
   useEffect(() => () => stop(), [stop]);
 
   const CameraBlock = (withOverlay: boolean) => (
-    <div className="relative aspect-video w-full rounded-2xl overflow-hidden border bg-black/60">
+    <div className="relative z-0 aspect-video w-full rounded-2xl overflow-hidden border bg-black/60">
       <video
         ref={videoRef}
         className="h-full w-full object-cover transform -scale-x-100"
@@ -30,21 +33,19 @@ export default function OnboardingStep({ onNext }: { onNext: (opts: { baseline: 
     </div>
   );
 
-  // 1단계: 미리보기만 (분석 X)
   const ControlsPreview = (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="relative z-10 pointer-events-auto flex flex-wrap items-center gap-3">
       {!isRunning ? (
-        <Button onClick={() => startPreview()}>카메라 시작(미리보기)</Button>
+        <Button type="button" onClick={() => startPreview()}>카메라 시작(미리보기)</Button>
       ) : (
-        <Button variant="outline" onClick={() => { stop(); setStepIdx(1); }}>다음</Button>
+        <Button type="button" onClick={() => { stop(); setStepIdx(1); }}>다음</Button>
       )}
       <Badge variant={isRunning ? "secondary" : "outline"}>카메라: {isRunning ? "동작" : "정지"}</Badge>
     </div>
   );
 
-  // 2단계: 분석 시작 (Mediapipe 스켈레톤 표시)
   const ControlsDetect = (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="relative z-10 pointer-events-auto flex flex-wrap items-center gap-3">
       {!isRunning ? (
         <Button onClick={() => startDetect()}>카메라 시작(분석)</Button>
       ) : (
@@ -84,7 +85,7 @@ export default function OnboardingStep({ onNext }: { onNext: (opts: { baseline: 
             <CardDescription>분석 없이 카메라 프리뷰만 확인합니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {CameraBlock(false) /* 오버레이 X */}
+            {CameraBlock(false)}
             {ControlsPreview}
           </CardContent>
         </Card>
@@ -97,12 +98,17 @@ export default function OnboardingStep({ onNext }: { onNext: (opts: { baseline: 
             <CardDescription>카메라 분석을 켠 뒤, 기준자세에서 “기준 좌표 캡처”를 누르세요.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {CameraBlock(true) /* 오버레이 O */}
+            {CameraBlock(true)}
             <div className="flex flex-wrap items-center gap-3">
               {ControlsDetect}
               <Button
                 variant="secondary"
-                onClick={() => { if (lastFrame) { setBaselineFrame(lastFrame); setBaselineCaptured(true); } }}
+                onClick={() => {
+                  if (lastFrame) {
+                    setBaselineFrame(lastFrame);
+                    setBaselineCaptured(true);
+                  }
+                }}
                 disabled={!lastFrame || !landmarkerReady}
               >
                 기준 좌표 캡처
@@ -110,10 +116,32 @@ export default function OnboardingStep({ onNext }: { onNext: (opts: { baseline: 
               {baselineCaptured ? <Badge variant="secondary">기준 좌표 설정됨</Badge> : <Badge variant="outline">미설정</Badge>}
             </div>
 
+            {/* ✅ 저장 여부 스위치 (캡처 후 노출) */}
+            {baselineCaptured && (
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <div className="text-sm font-medium">이 좌표를 기본값으로 저장</div>
+                  <div className="text-xs text-muted-foreground">다음 실행부터 온보딩 없이 바로 사용합니다. (설정에서 언제든 재설정 가능)</div>
+                </div>
+                <Switch checked={saveDefault} onCheckedChange={setSaveDefault} />
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <Button variant="ghost" onClick={() => { stop(); setStepIdx(0); }}>이전</Button>
               <div className="flex items-center gap-3">
-                <Button disabled={!baselineCaptured} onClick={() => { stop(); onNext({ baseline: baselineCaptured }); }}>프로그램 시작</Button>
+                <Button
+                  disabled={!baselineCaptured}
+                  onClick={() => {
+                    stop();
+                    if (baselineCaptured && baselineFrame && saveDefault) {
+                      setBaseline(baselineFrame);  // ✅ 영구 저장
+                    }
+                    onNext({ baseline: baselineCaptured, frame: baselineFrame! });
+                  }}
+                >
+                  프로그램 시작
+                </Button>
               </div>
             </div>
           </CardContent>
