@@ -8,8 +8,9 @@ const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || "http://localhost
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
-    height: 800,
+    height: 900,
     backgroundColor: "#ffffff",
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
     },
@@ -21,6 +22,7 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
 }
 
 app.whenReady().then(() => {
