@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dumbbell, LogIn, Sparkles, ChartBar, Leaf } from "lucide-react";
 import { brand } from "../lib/constants";
@@ -16,6 +16,33 @@ export default function AppShell({ baselineSet, userEmail }: { baselineSet:boole
   const [minimized, setMinimized] = useState(false);
   const [realtimeEnabled, setRealtimeEnabled] = useState(true);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cleanup = window.posecare?.onTrayRestore?.(() => {
+      setMinimized(false);
+    });
+    return () => {
+      cleanup?.();
+    };
+  }, []);
+
+  const handleMinimize = useCallback(() => {
+    if (typeof window !== "undefined" && window.posecare?.minimizeToTray) {
+      window.posecare
+        .minimizeToTray()
+        .then((handled) => {
+          if (!handled) {
+            setMinimized(true);
+          }
+        })
+        .catch(() => {
+          setMinimized(true);
+        });
+    } else {
+      setMinimized(true);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-white">
       <header className="backdrop-blur supports-[backdrop-filter]:bg-white/60 sticky top-0 z-30 border-b">
@@ -32,7 +59,7 @@ export default function AppShell({ baselineSet, userEmail }: { baselineSet:boole
           <div className="flex items-center gap-2">
             {baselineSet ? <Badge variant="secondary" className="hidden sm:inline-flex">기준 좌표 설정됨</Badge> : <Badge variant="outline" className="hidden sm:inline-flex">기준 좌표 미설정</Badge>}
             <Badge variant="secondary" className="hidden sm:inline-flex">백그라운드 실행</Badge>
-            <Button className="gap-2" onClick={() => setMinimized(true)}><LogIn className="h-4 w-4"/>트레이로 최소화</Button>
+            <Button className="gap-2" onClick={handleMinimize}><LogIn className="h-4 w-4"/>트레이로 최소화</Button>
           </div>
         </div>
       </header>
