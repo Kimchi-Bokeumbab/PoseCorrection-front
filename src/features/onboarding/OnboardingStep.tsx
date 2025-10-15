@@ -3,7 +3,7 @@ import React, { useCallback, useMemo, useRef, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertCircle, Camera, Check } from "lucide-react";
-import { usePoseStream, PoseFrame } from "@/hooks/usePoseStream";
+import { usePoseStream } from "@/hooks/usePoseStream";
 import {
   KP7_CONNECTIONS,
   validateKP7,
@@ -11,23 +11,7 @@ import {
 } from "@/pose/mediapipe";
 import { setInitialBaseline } from "@/lib/api";
 import CameraPlaceholder from "@/components/CameraPlaceholder";
-
-async function captureStableKP7(
-  getLastFrame: () => PoseFrame | null,
-  timeoutMs = 1500
-) {
-  const end = performance.now() + timeoutMs;
-  while (performance.now() < end) {
-    const lf = getLastFrame();
-    const kps = lf?.keypoints;
-    if (kps) {
-      const val = validateKP7(kps);
-      if (val.ok) return kps;
-    }
-    await new Promise((r) => setTimeout(r, 60));
-  }
-  return null;
-}
+import { captureStableKP7 } from "@/lib/baseline";
 
 export default function OnboardingStep({
   onNext,
