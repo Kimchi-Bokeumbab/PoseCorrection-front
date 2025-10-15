@@ -9,6 +9,7 @@ import {
   validateKP7,
   stripXYZ,
 } from "@/pose/mediapipe";
+import { setInitialBaseline } from "@/lib/api";
 import CameraPlaceholder from "@/components/CameraPlaceholder";
 
 async function captureStableKP7(
@@ -171,23 +172,13 @@ export default function OnboardingStep({
         alert("좌표 추출 실패: 얼굴·어깨가 모두 보이도록 정면에서 1초간 고정해 주세요.");
         return;
       }
-      const resp = await fetch("http://127.0.0.1:5000/set_initial", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keypoints: stripXYZ(kps) }), // 7 x [x,y,z]
-      });
-      const txt = await resp.text();
-      console.log("[BASELINE] response:", resp.status, txt);
-
-      if (!resp.ok) {
-        alert("서버 오류로 기준 좌표 설정 실패 (Network 탭 확인).");
-        return;
-      }
+      await setInitialBaseline(stripXYZ(kps));
       alert("기준 좌표가 설정되었습니다.");
       onNext({ baseline: true });
     } catch (e) {
       console.error(e);
-      alert("기준 좌표 설정 중 오류가 발생했습니다.");
+      const message = e instanceof Error ? e.message : "기준 좌표 설정 중 오류가 발생했습니다.";
+      alert(`기준 좌표 설정 실패: ${message}`);
     } finally {
       setBusy(false);
     }

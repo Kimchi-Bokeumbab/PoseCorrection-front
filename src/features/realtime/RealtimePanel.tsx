@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { usePoseStream } from "@/hooks/usePoseStream";
 import { KP7_CONNECTIONS, validateKP7, stripXYZ } from "@/pose/mediapipe";
+import { predictPosture } from "@/lib/api";
 
 export default function RealtimePanel({
   enabled,
@@ -124,29 +125,16 @@ export default function RealtimePanel({
 
           const n = B.length;
           const frames = [B[0], B[Math.floor(n / 2)], B[n - 1]];
-          const resp = await fetch("http://127.0.0.1:5000/predict", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ frames }), // 3 x 7 x 3
-          });
-          const text = await resp.text();
-          if (!resp.ok) {
-            setErrMsg(`서버 오류(${resp.status})`);
-            setStatus("error");
-            return;
-          }
-          const data = JSON.parse(text);
+          const data = await predictPosture(frames);
           if (data?.label) {
             setLastLabel(data.label);
             setStatus("collect");
-          } else {
-            setErrMsg("예측 응답 형식 오류");
-            setStatus("error");
           }
           bufRef.current = B.slice(-3);
         } catch (e) {
           console.error(e);
-          setErrMsg("네트워크 오류");
+          const message = e instanceof Error ? e.message : "네트워크 오류";
+          setErrMsg(message);
           setStatus("error");
         }
       }, 800) as unknown as number;
