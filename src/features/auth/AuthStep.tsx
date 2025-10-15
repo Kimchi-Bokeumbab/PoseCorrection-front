@@ -32,7 +32,7 @@ function getErrorMessage(code?: string) {
   return ERROR_MESSAGES[code] ?? "요청 처리 중 알 수 없는 오류가 발생했습니다.";
 }
 
-export default function AuthStep({ onNext }: { onNext: () => void }) {
+export default function AuthStep({ onAuthenticated }: { onAuthenticated: (email: string) => void }) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -60,7 +60,8 @@ export default function AuthStep({ onNext }: { onNext: () => void }) {
       setFeedback(null);
       const result = await loginUser(email, loginPassword);
       if (result.ok) {
-        onNext();
+        const normalizedEmail = email.toLowerCase();
+        onAuthenticated(normalizedEmail);
         return;
       }
       setFeedback({ type: "error", text: getErrorMessage(result.error), scope: "login" });

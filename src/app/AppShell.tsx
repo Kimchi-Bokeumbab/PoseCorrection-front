@@ -10,7 +10,7 @@ import RealtimePanel from "../features/realtime/RealtimePanel";
 import VisualizationPanel from "../features/visualization/VisualizationPanel";
 import StretchPanel from "../features/stretch/StretchPanel";
 
-export default function AppShell({ baselineSet }: { baselineSet:boolean }){
+export default function AppShell({ baselineSet, userEmail }: { baselineSet:boolean; userEmail: string }){
   const [tab, setTab] = useState("realtime");
   const [serviceRunning, setServiceRunning] = useState(true);
   const [minimized, setMinimized] = useState(false);
@@ -49,12 +49,12 @@ export default function AppShell({ baselineSet }: { baselineSet:boolean }){
               <AnimatePresence mode="wait">
                 {tab === "realtime" && (
                   <motion.div key="realtime" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
-                    <RealtimePanel enabled={realtimeEnabled} onToggle={setRealtimeEnabled} />
+                    <RealtimePanel enabled={realtimeEnabled} onToggle={setRealtimeEnabled} userEmail={userEmail} />
                   </motion.div>
                 )}
                 {tab === "viz" && (
                   <motion.div key="viz" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
-                    <VisualizationPanel/>
+                    <VisualizationPanel userEmail={userEmail} />
                   </motion.div>
                 )}
                 {tab === "stretch" && (

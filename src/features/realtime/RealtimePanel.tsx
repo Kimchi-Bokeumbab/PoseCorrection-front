@@ -13,9 +13,11 @@ import { captureStableKP7 } from "@/lib/baseline";
 export default function RealtimePanel({
   enabled,
   onToggle,
+  userEmail,
 }: {
   enabled: boolean;
   onToggle: (v: boolean) => void;
+  userEmail: string;
 }) {
   const { videoRef, startDetect, stop, lastFrame, isRunning, getLastFrame } = usePoseStream(); // ✅ isRunning 사용
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -129,13 +131,18 @@ export default function RealtimePanel({
       start();
       sendTimerRef.current = window.setInterval(async () => {
         try {
+          if (!userEmail) return;
           const B = bufRef.current;
           if (B.length < 3) return;
           setStatus("predict");
 
           const n = B.length;
           const frames = [B[0], B[Math.floor(n / 2)], B[n - 1]];
-          const data = await predictPosture(frames);
+          const data = await predictPosture({
+            email: userEmail,
+            frames,
+            recordedAt: new Date().toISOString(),
+          });
           if (data?.label) {
             setLastLabel(data.label);
             setStatus("collect");
@@ -158,7 +165,7 @@ export default function RealtimePanel({
         sendTimerRef.current = null;
       }
     };
-  }, [enabled, startDetect, stop]);
+  }, [enabled, startDetect, stop, userEmail]);
 
   const statusText = useMemo(() => {
     if (!enabled) return "OFF";
