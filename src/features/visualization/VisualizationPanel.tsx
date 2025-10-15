@@ -19,7 +19,7 @@ import {
 import { fetchPostureStats, PostureStatsSummary } from "@/lib/api";
 
 const STATS_DEFAULT_DAYS = 7;
-const NORMAL_LABELS = new Set(["정상", "normal", "Normal"]);
+const GOOD_LABEL_KEYS = new Set(["정상", "normal", "good_posture"]);
 
 const colorMap: Record<PostureLabel, string> = {
   정상: "#9CA3AF",
@@ -30,6 +30,15 @@ const colorMap: Record<PostureLabel, string> = {
 };
 
 const fallbackPalette = ["#F97316", "#EF4444", "#8B5CF6", "#0EA5E9", "#14B8A6"];
+
+function normalizeLabelKey(label: string): string {
+  return label.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function isGoodLabel(label: string): boolean {
+  const key = normalizeLabelKey(label);
+  return GOOD_LABEL_KEYS.has(key);
+}
 
 function isKnownLabel(label: string): label is PostureLabel {
   return (POSTURE_LABELS as readonly string[]).includes(label);
@@ -69,6 +78,69 @@ interface LabelCountItem {
   rawName: string;
   cnt: number;
   color: string;
+}
+
+interface AggregatedBadItem<T> {
+  item: T;
+  fraction: number;
+}
+
+function adjustBadCounts<T extends { bad: number }>(items: readonly T[], removeCount: number): T[] {
+  const normalizedRemoveCount = Math.max(0, Math.round(removeCount));
+  const cloned = items.map((item) => ({ ...item, bad: Math.max(0, Math.round(item.bad)) }));
+  if (normalizedRemoveCount <= 0) {
+    return cloned;
+  }
+
+  const totalBad = cloned.reduce((sum, entry) => sum + entry.bad, 0);
+  if (totalBad === 0) {
+    return cloned.map((entry) => ({ ...entry, bad: 0 }));
+  }
+
+  const shares = cloned.map((entry) => (entry.bad / totalBad) * normalizedRemoveCount);
+  let removed = 0;
+
+  cloned.forEach((entry, index) => {
+    const baseRemoval = Math.min(entry.bad, Math.floor(shares[index]));
+    if (baseRemoval > 0) {
+      entry.bad -= baseRemoval;
+      removed += baseRemoval;
+    }
+  });
+
+  let remaining = Math.min(normalizedRemoveCount - removed, cloned.reduce((sum, entry) => sum + entry.bad, 0));
+  if (remaining > 0) {
+    const fractionalOrder: AggregatedBadItem<typeof cloned[number]>[] = cloned.map((entry, index) => ({
+      item: entry,
+      fraction: shares[index] - Math.floor(shares[index]),
+    }));
+
+    fractionalOrder
+      .sort((a, b) => {
+        if (b.fraction !== a.fraction) {
+          return b.fraction - a.fraction;
+        }
+        return b.item.bad - a.item.bad;
+      })
+      .forEach(({ item }) => {
+        if (remaining > 0 && item.bad > 0) {
+          item.bad -= 1;
+          remaining -= 1;
+        }
+      });
+  }
+
+  if (remaining > 0) {
+    cloned.forEach((entry) => {
+      if (remaining > 0 && entry.bad > 0) {
+        const take = Math.min(entry.bad, remaining);
+        entry.bad -= take;
+        remaining -= take;
+      }
+    });
+  }
+
+  return cloned.map((entry) => ({ ...entry, bad: Math.max(0, entry.bad) }));
 }
 
 export default function VisualizationPanel({ userEmail }: { userEmail: string }) {
@@ -114,56 +186,74 @@ export default function VisualizationPanel({ userEmail }: { userEmail: string })
     setRefreshKey((key) => key + 1);
   }, []);
 
+  const { counts, goodPostureCount } = useMemo(() => {
+    if (!summary) {
+      return { counts: [] as LabelCountItem[], goodPostureCount: 0 };
+    }
+    let fallbackIndex = 0;
+    let goodPostureTotal = 0;
+    const filtered = summary.labels.reduce<LabelCountItem[]>((acc, entry) => {
+      if (isGoodLabel(entry.label)) {
+        if (normalizeLabelKey(entry.label) === "good_posture") {
+          goodPostureTotal += entry.count ?? 0;
+        }
+        return acc;
+      }
+
+      const rawName = entry.label;
+      if (isKnownLabel(rawName)) {
+        acc.push({
+          name: KO_TO_EN[rawName],
+          rawName,
+          cnt: entry.count,
+          color: colorMap[rawName],
+        });
+        return acc;
+      }
+
+      const color = fallbackPalette[fallbackIndex % fallbackPalette.length];
+      fallbackIndex += 1;
+      acc.push({
+        name: rawName,
+        rawName,
+        cnt: entry.count,
+        color,
+      });
+      return acc;
+    }, []);
+
+    return { counts: filtered, goodPostureCount: goodPostureTotal };
+  }, [summary]);
+
   const hourly = useMemo<HourlyChartItem[]>(() => {
     if (!summary) return [];
-    return summary.hourly.map((entry) => {
-      const total = entry.total ?? 0;
-      const bad = entry.bad ?? 0;
-      const fallbackScore = total > 0 ? Math.max(0, Math.round((1 - bad / total) * 100)) : 0;
-      const avgScore = entry.avg_score;
+    const base = summary.hourly.map((entry) => ({
+      t: formatHourLabel(entry.hour),
+      total: entry.total ?? 0,
+      bad: entry.bad ?? 0,
+      avgScore: typeof entry.avg_score === "number" ? entry.avg_score : null,
+    }));
+    return adjustBadCounts(base, goodPostureCount).map((entry) => {
+      const fallbackScore = entry.total > 0 ? Math.max(0, Math.round((1 - entry.bad / entry.total) * 100)) : 0;
+      const score = entry.avgScore != null ? Math.round(entry.avgScore) : fallbackScore;
       return {
-        t: formatHourLabel(entry.hour),
-        score: typeof avgScore === "number" ? Math.round(avgScore) : fallbackScore,
-        bad,
-        total,
+        t: entry.t,
+        score,
+        bad: entry.bad,
+        total: entry.total,
       };
     });
-  }, [summary]);
+  }, [summary, goodPostureCount]);
 
   const weekly = useMemo<WeeklyChartItem[]>(() => {
     if (!summary) return [];
-    return summary.weekday.map((entry) => ({
+    const base = summary.weekday.map((entry) => ({
       day: entry.weekday,
       bad: entry.bad ?? 0,
       total: entry.total ?? 0,
     }));
-  }, [summary]);
-
-  const counts = useMemo<LabelCountItem[]>(() => {
-    if (!summary) return [];
-    let fallbackIndex = 0;
-    return summary.labels
-      .filter((entry) => !NORMAL_LABELS.has(entry.label))
-      .map((entry) => {
-        const rawName = entry.label;
-        if (isKnownLabel(rawName)) {
-          return {
-            name: KO_TO_EN[rawName],
-            rawName,
-            cnt: entry.count,
-            color: colorMap[rawName],
-          };
-        }
-        const color = fallbackPalette[fallbackIndex % fallbackPalette.length];
-        fallbackIndex += 1;
-        return {
-          name: rawName,
-          rawName,
-          cnt: entry.count,
-          color,
-        };
-      });
-  }, [summary]);
+    return adjustBadCounts(base, goodPostureCount);
+  }, [summary, goodPostureCount]);
 
   const hasEvents = (summary?.total_events ?? 0) > 0;
   const averageScore = useMemo(() => {
