@@ -14,10 +14,12 @@ export default function RealtimePanel({
   enabled,
   onToggle,
   userEmail,
+  onBaselineStored,
 }: {
   enabled: boolean;
   onToggle: (v: boolean) => void;
   userEmail: string;
+  onBaselineStored?: (value: boolean) => void;
 }) {
   const { videoRef, startDetect, stop, lastFrame, isRunning, getLastFrame } = usePoseStream(); // ✅ isRunning 사용
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -196,8 +198,9 @@ export default function RealtimePanel({
         return;
       }
 
-      await setInitialBaseline(stripXYZ(kps));
+      await setInitialBaseline({ email: userEmail, keypoints: stripXYZ(kps) });
       setBaselineFeedback({ kind: "success", message: "기준 좌표가 설정되었습니다." });
+      onBaselineStored?.(true);
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : "기준 좌표 설정에 실패했습니다.";
@@ -205,7 +208,7 @@ export default function RealtimePanel({
     } finally {
       setBaselineBusy(false);
     }
-  }, [getLastFrame, isRunning]);
+  }, [getLastFrame, isRunning, onBaselineStored, userEmail]);
 
   return (
     <div className="grid lg:grid-cols-3 gap-6">

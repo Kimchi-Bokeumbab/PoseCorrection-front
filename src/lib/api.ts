@@ -90,8 +90,29 @@ export interface BaselineResponse {
   detail?: string;
 }
 
-export async function setInitialBaseline(keypoints: [number, number, number][]) {
-  const { response, data } = await postJson<BaselineResponse>("/set_initial", { keypoints });
+export interface BaselineStatusResponse {
+  ok: boolean;
+  has_baseline?: boolean;
+  baseline?: unknown;
+  baseline21?: unknown;
+  updated_at?: string;
+  error?: string;
+  detail?: string;
+}
+
+export interface BaselineStatusResult {
+  hasBaseline: boolean;
+  updatedAt?: string;
+}
+
+export async function setInitialBaseline({
+  email,
+  keypoints,
+}: {
+  email: string;
+  keypoints: [number, number, number][];
+}) {
+  const { response, data } = await postJson<BaselineResponse>("/set_initial", { email, keypoints });
   if (!response.ok) {
     const error = data?.error ?? "baseline_failed";
     const detail = data?.detail;
@@ -101,6 +122,61 @@ export async function setInitialBaseline(keypoints: [number, number, number][]) 
     throw new Error(data?.error ?? "baseline_failed");
   }
   return data;
+}
+
+function coerceBaselinePresence(data: BaselineStatusResponse | null | undefined) {
+  if (!data) return false;
+  if (typeof data.has_baseline === "boolean") {
+    return data.has_baseline;
+  }
+  if (Array.isArray((data as { baseline?: unknown }).baseline)) {
+    return true;
+  }
+  if (Array.isArray((data as { baseline21?: unknown }).baseline21)) {
+    return true;
+  }
+  return false;
+}
+
+function baselineStatusErrorMessage(code?: string) {
+  if (!code) return "기준 좌표 상태를 불러오지 못했습니다.";
+  const messages: Record<string, string> = {
+    user_not_found: "사용자 정보를 찾을 수 없습니다.",
+    email_required: "이메일 정보가 필요합니다.",
+  };
+  return messages[code] ?? "기준 좌표 상태를 확인하는 중 오류가 발생했습니다.";
+}
+
+export async function fetchBaselineStatus(email: string): Promise<BaselineStatusResult> {
+  const params = new URLSearchParams({ email });
+  const { response, data } = await getJson<BaselineStatusResponse>(`/baseline_status?${params.toString()}`);
+
+  if (!data) {
+    if (!response.ok) {
+      throw new Error(`기준 좌표 상태 요청 실패 (${response.status})`);
+    }
+    return { hasBaseline: false };
+  }
+
+  const hasBaseline = coerceBaselinePresence(data);
+  if (response.ok) {
+    if (!data.ok) {
+      if (data.error === "baseline_not_set" || data.error === "baseline_missing") {
+        return { hasBaseline: false };
+      }
+      throw new Error(baselineStatusErrorMessage(data.error));
+    }
+    return {
+      hasBaseline,
+      updatedAt: typeof data.updated_at === "string" ? data.updated_at : undefined,
+    };
+  }
+
+  if (data.error === "baseline_not_set" || data.error === "baseline_missing") {
+    return { hasBaseline: false };
+  }
+
+  throw new Error(baselineStatusErrorMessage(data.error));
 }
 
 export interface PredictApiResponse {

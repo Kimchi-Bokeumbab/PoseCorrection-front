@@ -14,8 +14,10 @@ import CameraPlaceholder from "@/components/CameraPlaceholder";
 import { captureStableKP7 } from "@/lib/baseline";
 
 export default function OnboardingStep({
+  userEmail,
   onNext,
 }: {
+  userEmail: string;
   onNext: (p: { baseline: boolean }) => void;
 }) {
   const [cameraOn, setCameraOn] = useState(false);
@@ -143,6 +145,10 @@ export default function OnboardingStep({
   }, [stop]);
 
   const handleCaptureBaseline = useCallback(async () => {
+    if (!userEmail) {
+      alert("로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.");
+      return;
+    }
     try {
       setBusy(true);
       const kps = await captureStableKP7(getLastFrame, 1500);
@@ -156,7 +162,7 @@ export default function OnboardingStep({
         alert("좌표 추출 실패: 얼굴·어깨가 모두 보이도록 정면에서 1초간 고정해 주세요.");
         return;
       }
-      await setInitialBaseline(stripXYZ(kps));
+      await setInitialBaseline({ email: userEmail, keypoints: stripXYZ(kps) });
       alert("기준 좌표가 설정되었습니다.");
       onNext({ baseline: true });
     } catch (e) {
@@ -166,7 +172,7 @@ export default function OnboardingStep({
     } finally {
       setBusy(false);
     }
-  }, [getLastFrame, onNext]);
+  }, [getLastFrame, onNext, userEmail]);
 
   return (
     <div className="grid lg:grid-cols-3 gap-6">
