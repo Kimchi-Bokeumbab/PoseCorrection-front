@@ -149,9 +149,37 @@ function baselineStatusErrorMessage(code?: string) {
 
 export async function fetchBaselineStatus(email: string): Promise<BaselineStatusResult> {
   const params = new URLSearchParams({ email });
-  const { response, data } = await getJson<BaselineStatusResponse>(`/baseline_status?${params.toString()}`);
+  const response = await fetch(`${API_BASE_URL}/baseline_status?${params.toString()}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  let data: BaselineStatusResponse | null = null;
+  let rawText = "";
+  try {
+    rawText = await response.text();
+  } catch (error) {
+    rawText = "";
+  }
+
+  if (rawText) {
+    const trimmed = rawText.trim();
+    const contentType = response.headers.get("content-type") ?? "";
+    const shouldParse =
+      contentType.includes("application/json") || trimmed.startsWith("{") || trimmed.startsWith("[");
+    if (shouldParse) {
+      try {
+        data = JSON.parse(trimmed) as BaselineStatusResponse;
+      } catch (error) {
+        data = null;
+      }
+    }
+  }
 
   if (!data) {
+    if (response.status === 404) {
+      return { hasBaseline: false };
+    }
     if (!response.ok) {
       throw new Error(`기준 좌표 상태 요청 실패 (${response.status})`);
     }
@@ -159,8 +187,9 @@ export async function fetchBaselineStatus(email: string): Promise<BaselineStatus
   }
 
   const hasBaseline = coerceBaselinePresence(data);
+
   if (response.ok) {
-    if (!data.ok) {
+    if (data.ok === false) {
       if (data.error === "baseline_not_set" || data.error === "baseline_missing") {
         return { hasBaseline: false };
       }
