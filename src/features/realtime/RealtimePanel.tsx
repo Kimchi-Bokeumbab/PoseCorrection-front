@@ -1,24 +1,39 @@
 // src/features/realtime/RealtimePanel.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import CameraPlaceholder from "../../components/CameraPlaceholder";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { usePoseStream } from "@/hooks/usePoseStream";
 import { KP7_CONNECTIONS, validateKP7, stripXYZ } from "@/pose/mediapipe";
+import { predictPosture, setInitialBaseline } from "@/lib/api";
+import { captureStableKP7 } from "@/lib/baseline";
 
 export default function RealtimePanel({
   enabled,
   onToggle,
+  userEmail,
+  onBaselineStored,
 }: {
   enabled: boolean;
   onToggle: (v: boolean) => void;
+  userEmail: string;
+  onBaselineStored?: (value: boolean) => void;
 }) {
-  const { videoRef, startDetect, stop, lastFrame, isRunning } = usePoseStream(); // ✅ isRunning 사용
+  const { videoRef, startDetect, stop, lastFrame, isRunning, getLastFrame } = usePoseStream(); // ✅ isRunning 사용
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [status, setStatus] = useState<"idle" | "collect" | "predict" | "error">("idle");
   const [lastLabel, setLastLabel] = useState<string>("-");
   const [errMsg, setErrMsg] = useState<string>("");
+  const [baselineFeedback, setBaselineFeedback] = useState<
+    | {
+        kind: "success" | "error";
+        message: string;
+      }
+    | null
+  >(null);
+  const [baselineBusy, setBaselineBusy] = useState(false);
 
   const bufRef = useRef<[number, number, number][][]>([]);
   const sendTimerRef = useRef<number | null>(null);
@@ -118,35 +133,30 @@ export default function RealtimePanel({
       start();
       sendTimerRef.current = window.setInterval(async () => {
         try {
+          if (!userEmail) return;
           const B = bufRef.current;
           if (B.length < 3) return;
           setStatus("predict");
 
           const n = B.length;
           const frames = [B[0], B[Math.floor(n / 2)], B[n - 1]];
-          const resp = await fetch("http://127.0.0.1:5000/predict", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ frames }), // 3 x 7 x 3
+          const data = await predictPosture({
+            email: userEmail,
+            frames,
+            recordedAt: new Date().toISOString(),
           });
-          const text = await resp.text();
-          if (!resp.ok) {
-            setErrMsg(`서버 오류(${resp.status})`);
-            setStatus("error");
-            return;
-          }
-          const data = JSON.parse(text);
           if (data?.label) {
             setLastLabel(data.label);
             setStatus("collect");
-          } else {
-            setErrMsg("예측 응답 형식 오류");
-            setStatus("error");
+            if (typeof window !== "undefined") {
+              window.posecare?.reportPostureEvent?.({ label: data.label });
+            }
           }
           bufRef.current = B.slice(-3);
         } catch (e) {
           console.error(e);
-          setErrMsg("네트워크 오류");
+          const message = e instanceof Error ? e.message : "네트워크 오류";
+          setErrMsg(message);
           setStatus("error");
         }
       }, 800) as unknown as number;
@@ -160,7 +170,7 @@ export default function RealtimePanel({
         sendTimerRef.current = null;
       }
     };
-  }, [enabled, startDetect, stop]);
+  }, [enabled, startDetect, stop, userEmail]);
 
   const statusText = useMemo(() => {
     if (!enabled) return "OFF";
@@ -169,6 +179,39 @@ export default function RealtimePanel({
     if (status === "error") return `오류: ${errMsg || "-"}`;
     return "대기";
   }, [enabled, status, errMsg]);
+
+  const handleSetBaseline = useCallback(async () => {
+    if (!isRunning) {
+      setBaselineFeedback({
+        kind: "error",
+        message: "카메라를 켜고 기준 자세를 유지한 뒤 다시 시도하세요.",
+      });
+      return;
+    }
+
+    setBaselineBusy(true);
+    setBaselineFeedback(null);
+    try {
+      const kps = await captureStableKP7(getLastFrame, 1500);
+      if (!kps) {
+        setBaselineFeedback({
+          kind: "error",
+          message: "기준 좌표 추출 실패: 1초간 정면에서 자세를 유지해주세요.",
+        });
+        return;
+      }
+
+      await setInitialBaseline({ email: userEmail, keypoints: stripXYZ(kps) });
+      setBaselineFeedback({ kind: "success", message: "기준 좌표가 설정되었습니다." });
+      onBaselineStored?.(true);
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : "기준 좌표 설정에 실패했습니다.";
+      setBaselineFeedback({ kind: "error", message: `기준 좌표 설정 실패: ${message}` });
+    } finally {
+      setBaselineBusy(false);
+    }
+  }, [getLastFrame, isRunning, onBaselineStored, userEmail]);
 
   return (
     <div className="grid lg:grid-cols-3 gap-6">
@@ -209,6 +252,21 @@ export default function RealtimePanel({
 
           <div className="text-sm text-muted-foreground">
             상태: {statusText}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button onClick={handleSetBaseline} disabled={baselineBusy} size="sm">
+              {baselineBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+              기준 자세 다시 설정
+            </Button>
+            {baselineFeedback && (
+              <p
+                className={`text-sm ${
+                  baselineFeedback.kind === "error" ? "text-destructive" : "text-emerald-600"
+                }`}
+              >
+                {baselineFeedback.message}
+              </p>
+            )}
           </div>
           <div className="text-sm">
             최근 예측: <span className="font-medium">{lastLabel}</span>
