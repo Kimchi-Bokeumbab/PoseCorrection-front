@@ -20,12 +20,24 @@ let hiddenToTray = false;
 
 let badPostureSince = null;
 let lastNotificationAt = 0;
+let activeNotification = null;
 
 const GOOD_LABEL_KEYS = new Set(["good_posture", "정상", "normal"]);
 
 function normalizeLabel(value) {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase();
+}
+
+function closeActiveNotification() {
+  if (activeNotification) {
+    try {
+      activeNotification.close();
+    } catch (error) {
+      console.warn("Failed to close notification", error);
+    }
+    activeNotification = null;
+  }
 }
 
 function resetPostureTracking() {
@@ -42,6 +54,7 @@ function handlePostureEvent(payload = {}) {
   const isGood = GOOD_LABEL_KEYS.has(normalized);
 
   if (isGood) {
+    closeActiveNotification();
     resetPostureTracking();
     return;
   }
@@ -61,11 +74,23 @@ function handlePostureEvent(payload = {}) {
   lastNotificationAt = now;
 
   if (Notification.isSupported()) {
+    closeActiveNotification();
     const notification = new Notification({
       title: "자세 주의",
       body: "나쁜 자세가 3초 이상 지속되고 있어요. 자세를 바로 잡아주세요!",
       silent: false,
     });
+    notification.on("close", () => {
+      if (activeNotification === notification) {
+        activeNotification = null;
+      }
+    });
+    notification.on("click", () => {
+      if (activeNotification === notification) {
+        activeNotification = null;
+      }
+    });
+    activeNotification = notification;
     notification.show();
   }
 }
@@ -117,6 +142,7 @@ function hideWindow() {
   hiddenToTray = true;
   resetPostureTracking();
   lastNotificationAt = 0;
+  closeActiveNotification();
   return true;
 }
 
@@ -128,6 +154,7 @@ function showWindow() {
   hiddenToTray = false;
   resetPostureTracking();
   lastNotificationAt = 0;
+  closeActiveNotification();
   mainWindow.focus();
   if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send(TRAY_EVENT);
