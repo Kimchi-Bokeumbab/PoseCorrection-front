@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dumbbell, LogIn, Sparkles, ChartBar, Leaf } from "lucide-react";
 import { brand } from "../lib/constants";
@@ -10,11 +10,46 @@ import RealtimePanel from "../features/realtime/RealtimePanel";
 import VisualizationPanel from "../features/visualization/VisualizationPanel";
 import StretchPanel from "../features/stretch/StretchPanel";
 
-export default function AppShell({ baselineSet }: { baselineSet:boolean }){
+export default function AppShell({
+  baselineSet,
+  userEmail,
+  onBaselineStored,
+}: {
+  baselineSet: boolean;
+  userEmail: string;
+  onBaselineStored: (value: boolean) => void;
+}) {
   const [tab, setTab] = useState("realtime");
   const [serviceRunning, setServiceRunning] = useState(true);
   const [minimized, setMinimized] = useState(false);
   const [realtimeEnabled, setRealtimeEnabled] = useState(true);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cleanup = window.posecare?.onTrayRestore?.(() => {
+      setMinimized(false);
+    });
+    return () => {
+      cleanup?.();
+    };
+  }, []);
+
+  const handleMinimize = useCallback(() => {
+    if (typeof window !== "undefined" && window.posecare?.minimizeToTray) {
+      window.posecare
+        .minimizeToTray()
+        .then((handled) => {
+          if (!handled) {
+            setMinimized(true);
+          }
+        })
+        .catch(() => {
+          setMinimized(true);
+        });
+    } else {
+      setMinimized(true);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-white">
@@ -32,7 +67,7 @@ export default function AppShell({ baselineSet }: { baselineSet:boolean }){
           <div className="flex items-center gap-2">
             {baselineSet ? <Badge variant="secondary" className="hidden sm:inline-flex">기준 좌표 설정됨</Badge> : <Badge variant="outline" className="hidden sm:inline-flex">기준 좌표 미설정</Badge>}
             <Badge variant="secondary" className="hidden sm:inline-flex">백그라운드 실행</Badge>
-            <Button className="gap-2" onClick={() => setMinimized(true)}><LogIn className="h-4 w-4"/>트레이로 최소화</Button>
+            <Button className="gap-2" onClick={handleMinimize}><LogIn className="h-4 w-4"/>트레이로 최소화</Button>
           </div>
         </div>
       </header>
@@ -49,12 +84,17 @@ export default function AppShell({ baselineSet }: { baselineSet:boolean }){
               <AnimatePresence mode="wait">
                 {tab === "realtime" && (
                   <motion.div key="realtime" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
-                    <RealtimePanel enabled={realtimeEnabled} onToggle={setRealtimeEnabled} />
+                    <RealtimePanel
+                      enabled={realtimeEnabled}
+                      onToggle={setRealtimeEnabled}
+                      userEmail={userEmail}
+                      onBaselineStored={onBaselineStored}
+                    />
                   </motion.div>
                 )}
                 {tab === "viz" && (
                   <motion.div key="viz" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
-                    <VisualizationPanel/>
+                    <VisualizationPanel userEmail={userEmail} />
                   </motion.div>
                 )}
                 {tab === "stretch" && (

@@ -1,124 +1,278 @@
-import React, { useEffect, useState } from "react";
-import { Activity, Camera, Settings } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+// src/features/onboarding/OnboardingStep.tsx
+import React, { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import SectionHeader from "@/components/SectionHeader";
-import type { PoseFrame } from "@/lib/model";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertCircle, Camera, Check } from "lucide-react";
 import { usePoseStream } from "@/hooks/usePoseStream";
-import PoseOverlay from "@/components/PoseOverlay";
+import {
+  KP7_CONNECTIONS,
+  validateKP7,
+  stripXYZ,
+} from "@/pose/mediapipe";
+import { setInitialBaseline } from "@/lib/api";
+import CameraPlaceholder from "@/components/CameraPlaceholder";
+import { captureStableKP7 } from "@/lib/baseline";
 
-export default function OnboardingStep({ onNext }: { onNext: (opts: { baseline: boolean }) => void }) {
-  const [stepIdx, setStepIdx] = useState(0);
-  const [baselineCaptured, setBaselineCaptured] = useState(false);
-  const [baselineFrame, setBaselineFrame] = useState<PoseFrame | null>(null);
+export default function OnboardingStep({
+  userEmail,
+  onNext,
+}: {
+  userEmail: string;
+  onNext: (p: { baseline: boolean }) => void;
+}) {
+  const [cameraOn, setCameraOn] = useState(false);
+  const [videoReady, setVideoReady] = useState(false); // ✅ 비디오 준비 여부
+  const [busy, setBusy] = useState(false);
+  const [debugReasons, setDebugReasons] = useState<string[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const { videoRef, isRunning, landmarkerReady, startPreview, startDetect, stop, lastFrame } = usePoseStream();
+  const {
+    videoRef,
+    isRunning,
+    landmarkerReady,
+    lastFrame,
+    getLastFrame,
+    startDetect,
+    stop,
+  } = usePoseStream();
 
-  useEffect(() => () => stop(), [stop]);
+  const statusText = useMemo(() => {
+    if (!cameraOn) return "카메라 꺼짐";
+    if (!videoReady) return "카메라 초기화 중…";
+    if (!landmarkerReady) return "모델 로딩 중…";
+    if (isRunning && lastFrame?.keypoints) return "검출 중";
+    if (isRunning) return "카메라 켜짐";
+    return "대기";
+  }, [cameraOn, videoReady, landmarkerReady, isRunning, lastFrame]);
 
-  const CameraBlock = (withOverlay: boolean) => (
-    <div className="relative aspect-video w-full rounded-2xl overflow-hidden border bg-black/60">
-      <video
-        ref={videoRef}
-        className="h-full w-full object-cover transform -scale-x-100"
-        autoPlay
-        muted
-        playsInline
-      />
-      {withOverlay && <PoseOverlay videoRef={videoRef} frame={lastFrame} />}
-    </div>
-  );
+  // 오버레이: 점 + 연결선 + 디버그 텍스트
+  useEffect(() => {
+    const v = videoRef.current;
+    const c = canvasRef.current;
+    if (!v || !c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
 
-  // 1단계: 미리보기만 (분석 X)
-  const ControlsPreview = (
-    <div className="flex flex-wrap items-center gap-3">
-      {!isRunning ? (
-        <Button onClick={() => startPreview()}>카메라 시작(미리보기)</Button>
-      ) : (
-        <Button variant="outline" onClick={() => { stop(); setStepIdx(1); }}>다음</Button>
-      )}
-      <Badge variant={isRunning ? "secondary" : "outline"}>카메라: {isRunning ? "동작" : "정지"}</Badge>
-    </div>
-  );
+    const draw = () => {
+      // 비디오 사이즈에 맞춰 캔버스 리사이즈 (비율 유지)
+      const w = v.videoWidth || v.clientWidth || 1280;
+      const h = v.videoHeight || v.clientHeight || 720;
+      if (c.width !== w || c.height !== h) {
+        c.width = w;
+        c.height = h;
+      }
+      ctx.clearRect(0, 0, c.width, c.height);
 
-  // 2단계: 분석 시작 (Mediapipe 스켈레톤 표시)
-  const ControlsDetect = (
-    <div className="flex flex-wrap items-center gap-3">
-      {!isRunning ? (
-        <Button onClick={() => startDetect()}>카메라 시작(분석)</Button>
-      ) : (
-        <>
-          {!landmarkerReady ? (
-            <Button variant="secondary" onClick={() => startDetect()}>분석 시작</Button>
-          ) : (
-            <Button variant="outline" onClick={() => stop()}>카메라 정지</Button>
-          )}
-        </>
-      )}
-      <Badge variant={isRunning ? "secondary" : "outline"}>카메라: {isRunning ? "동작" : "정지"}</Badge>
-      <Badge variant={landmarkerReady ? "secondary" : "outline"}>Mediapipe: {landmarkerReady ? "준비됨" : "대기"}</Badge>
-    </div>
-  );
+      const kf = lastFrame?.keypoints;
+      if (kf) {
+        const val = validateKP7(kf);
+        setDebugReasons(val.ok ? [] : val.reasons);
+
+        const vMin = 0.1; // 다소 완화
+
+        // 연결선
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#22c55e";
+        KP7_CONNECTIONS.forEach(([a, b]) => {
+          const p1 = kf[a];
+          const p2 = kf[b];
+          if (p1 && p2 && p1.v >= vMin && p2.v >= vMin) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x * c.width, p1.y * c.height);
+            ctx.lineTo(p2.x * c.width, p2.y * c.height);
+            ctx.stroke();
+          }
+        });
+
+        // 점
+        kf.forEach((p) => {
+          if (!p) return;
+          const x = p.x * c.width;
+          const y = p.y * c.height;
+          const ok =
+            p.v >= vMin &&
+            Number.isFinite(p.x) &&
+            Number.isFinite(p.y) &&
+            p.x > -0.05 &&
+            p.x < 1.05 &&
+            p.y > -0.05 &&
+            p.y < 1.05;
+
+          ctx.fillStyle = ok ? "#3b82f6" : "#ef4444";
+          ctx.beginPath();
+          ctx.arc(x, y, 5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // 검증 실패 메시지 (좌측 상단, 아주 작게)
+        if (!val.ok) {
+          ctx.fillStyle = "rgba(239, 68, 68, 0.95)";
+          ctx.font = "12px system-ui, sans-serif";
+          ctx.fillText("7개 포인트가 선명히 보여야 합니다.", 10, 18);
+        }
+      }
+      requestAnimationFrame(draw);
+    };
+    const id = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(id);
+  }, [lastFrame, videoRef]);
+
+  const handleStartCam = useCallback(async () => {
+    try {
+      setBusy(true);
+      setVideoReady(false);  // ✅ 켤 때 초기화
+      await startDetect();
+      setCameraOn(true);
+    } catch (e) {
+      console.error(e);
+      alert("카메라 시작 실패");
+    } finally {
+      setBusy(false);
+    }
+  }, [startDetect]);
+
+  const handleStopCam = useCallback(async () => {
+    try {
+      setBusy(true);
+      await stop();
+      setCameraOn(false);
+      setVideoReady(false); // ✅ 끄면 초기화
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  }, [stop]);
+
+  const handleCaptureBaseline = useCallback(async () => {
+    if (!userEmail) {
+      alert("로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.");
+      return;
+    }
+    try {
+      setBusy(true);
+      const kps = await captureStableKP7(getLastFrame, 1500);
+      if (!kps) {
+        // 디버깅 로그
+        const lf = getLastFrame();
+        if (lf?.keypoints) {
+          const val = validateKP7(lf.keypoints);
+          console.log("[VALIDATE FAIL]", val.reasons);
+        }
+        alert("좌표 추출 실패: 얼굴·어깨가 모두 보이도록 정면에서 1초간 고정해 주세요.");
+        return;
+      }
+      await setInitialBaseline({ email: userEmail, keypoints: stripXYZ(kps) });
+      alert("기준 좌표가 설정되었습니다.");
+      onNext({ baseline: true });
+    } catch (e) {
+      console.error(e);
+      const message = e instanceof Error ? e.message : "기준 좌표 설정 중 오류가 발생했습니다.";
+      alert(`기준 좌표 설정 실패: ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [getLastFrame, onNext, userEmail]);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <SectionHeader
-        icon={Settings}
-        title={`최초설정 – 데스크톱 환경 준비 (${stepIdx + 1}/2)`}
-        desc="흐름: 카메라 확인(미리보기) → 기준 좌표 캡처(분석)"
-      />
-
-      <div className="grid grid-cols-2 gap-2">
-        {["카메라 확인", "기준 좌표 캡처"].map((t, i) => (
-          <div key={t} className={`rounded-xl p-3 text-center text-sm border ${i === stepIdx ? "bg-emerald-50 border-emerald-300" : "bg-white"}`}>
-            {i + 1}. {t}
-          </div>
-        ))}
-      </div>
-
-      {stepIdx === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Camera className="h-4 w-4" />카메라 확인(미리보기)</CardTitle>
-            <CardDescription>분석 없이 카메라 프리뷰만 확인합니다.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {CameraBlock(false) /* 오버레이 X */}
-            {ControlsPreview}
-          </CardContent>
-        </Card>
-      )}
-
-      {stepIdx === 1 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4" />기준 좌표 캡처(분석)</CardTitle>
-            <CardDescription>카메라 분석을 켠 뒤, 기준자세에서 “기준 좌표 캡처”를 누르세요.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {CameraBlock(true) /* 오버레이 O */}
-            <div className="flex flex-wrap items-center gap-3">
-              {ControlsDetect}
-              <Button
-                variant="secondary"
-                onClick={() => { if (lastFrame) { setBaselineFrame(lastFrame); setBaselineCaptured(true); } }}
-                disabled={!lastFrame || !landmarkerReady}
-              >
-                기준 좌표 캡처
-              </Button>
-              {baselineCaptured ? <Badge variant="secondary">기준 좌표 설정됨</Badge> : <Badge variant="outline">미설정</Badge>}
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Button variant="ghost" onClick={() => { stop(); setStepIdx(0); }}>이전</Button>
-              <div className="flex items-center gap-3">
-                <Button disabled={!baselineCaptured} onClick={() => { stop(); onNext({ baseline: baselineCaptured }); }}>프로그램 시작</Button>
+    <div className="grid lg:grid-cols-3 gap-6">
+      {/* 좌측: 카메라/스켈레톤(비율 고정 + 플레이스홀더) */}
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Camera className="h-4 w-4" />
+            초기 기준 자세 설정
+          </CardTitle>
+          <CardDescription>
+            정면을 바라보고 어깨와 얼굴이 프레임에 잘 들어오게 맞춘 뒤, 기준 좌표를 캡처해 주세요.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div
+            className="relative w-full aspect-video min-h-[260px] rounded-md border overflow-hidden bg-black"
+            style={{ aspectRatio: "16/9" }}
+          >
+            {/* ✅ 카메라 OFF이거나, 비디오가 아직 준비 안된 경우 플레이스홀더 표시 */}
+            {(!cameraOn || !videoReady) && (
+              <div className="absolute inset-0 z-20 grid place-items-center bg-white">
+                <CameraPlaceholder />
               </div>
+            )}
+
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-contain bg-black"
+              onLoadedData={() => setVideoReady(true)} // ✅ 비디오 준비 신호
+              onCanPlay={() => setVideoReady(true)}    // ✅ 일부 브라우저 대비
+              style={{ opacity: cameraOn ? 1 : 0 }}     // 카메라 OFF이면 투명 처리
+            />
+
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              style={{ display: cameraOn && videoReady ? "block" : "none" }}
+            />
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            상태: {statusText}
+            {cameraOn && !landmarkerReady && <> • 모델 로딩 중…</>}
+            {!cameraOn && <> • 카메라를 켜 주세요.</>}
+            {cameraOn && !videoReady && <> • 카메라 초기화 중…</>}
+          </div>
+
+          {/* 필요 시 디버그 이유 표시 (개발용) */}
+          {cameraOn && debugReasons.length > 0 && (
+            <div className="text-xs text-red-600">
+              유효성 실패 원인: {debugReasons.slice(0, 3).join(", ")}
+              {debugReasons.length > 3 && " ..."}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+
+          <div className="flex gap-2">
+            {!cameraOn ? (
+              <Button onClick={handleStartCam} disabled={busy}>
+                카메라 켜기
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={handleStopCam} disabled={busy}>
+                카메라 끄기
+              </Button>
+            )}
+            <Button onClick={handleCaptureBaseline} disabled={!cameraOn || busy}>
+              기준 좌표 캡처
+            </Button>
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            • 기준 좌표는 7개 포인트(양 어깨·양 귀·양 눈·코)가 모두 화면에 <b>선명히</b> 보일 때만 설정됩니다.
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 우측: 가이드 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Check className="h-4 w-4 text-emerald-600" />
+            캡처 가이드
+          </CardTitle>
+          <CardDescription>정확한 분석을 위한 가이드</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5" />
+            <span>얼굴(좌/우 눈·귀·코)과 양쪽 어깨가 모두 화면에 보여야 합니다.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5" />
+            <span>좌표가 흔들리지 않도록 캡처 전 1초간 자세를 유지해 주세요.</span>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
