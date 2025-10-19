@@ -129,12 +129,37 @@ function coerceBaselinePresence(data: BaselineStatusResponse | null | undefined)
   if (typeof data.has_baseline === "boolean") {
     return data.has_baseline;
   }
-  if (Array.isArray((data as { baseline?: unknown }).baseline)) {
-    return true;
+
+  const baselineCandidate = (data as { baseline?: unknown }).baseline;
+  if (Array.isArray(baselineCandidate)) {
+    return baselineCandidate.length > 0;
   }
-  if (Array.isArray((data as { baseline21?: unknown }).baseline21)) {
-    return true;
+  if (typeof baselineCandidate === "string") {
+    try {
+      const parsed = JSON.parse(baselineCandidate);
+      if (Array.isArray(parsed)) {
+        return parsed.length > 0;
+      }
+    } catch (error) {
+      // ignore parse errors and fall through to other checks
+    }
   }
+
+  const baseline21Candidate = (data as { baseline21?: unknown }).baseline21;
+  if (Array.isArray(baseline21Candidate)) {
+    return baseline21Candidate.length > 0;
+  }
+  if (typeof baseline21Candidate === "string") {
+    try {
+      const parsed = JSON.parse(baseline21Candidate);
+      if (Array.isArray(parsed)) {
+        return parsed.length > 0;
+      }
+    } catch (error) {
+      // ignore parse errors and fall through to default false
+    }
+  }
+
   return false;
 }
 
