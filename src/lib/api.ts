@@ -105,6 +105,48 @@ export interface BaselineStatusResult {
   updatedAt?: string;
 }
 
+function interpretBaselineStatusText(rawText: string): BaselineStatusResult | null {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const lower = trimmed.toLowerCase();
+  let hasBaseline: boolean | null = null;
+
+  if (["true", "1", "yes", "baseline_exists", "baseline_set", "exists"].includes(lower)) {
+    hasBaseline = true;
+  }
+
+  if (["false", "0", "no", "baseline_missing", "baseline_not_set"].includes(lower)) {
+    hasBaseline = false;
+  }
+
+  if (hasBaseline === null && lower.includes("baseline")) {
+    if (/(not\s+set|missing|none|absent|no\s+baseline)/.test(lower)) {
+      hasBaseline = false;
+    } else if (/(exists|stored|available|ready|found|present|set)/.test(lower)) {
+      hasBaseline = true;
+    }
+  }
+
+  if (hasBaseline === null) {
+    const numericMatches = trimmed.match(/-?\d+(?:\.\d+)?/g);
+    if (numericMatches && numericMatches.length >= 21) {
+      hasBaseline = true;
+    }
+  }
+
+  if (hasBaseline === null) {
+    return null;
+  }
+
+  const isoMatch = trimmed.match(/\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}(?:\.\d+)?z?/i);
+  const updatedAt = isoMatch ? isoMatch[0] : undefined;
+
+  return { hasBaseline, updatedAt };
+}
+
 export async function setInitialBaseline({
   email,
   keypoints,
@@ -211,14 +253,17 @@ export async function fetchBaselineStatus(email: string): Promise<BaselineStatus
     rawText = "";
   }
 
+  const textResult = rawText ? interpretBaselineStatusText(rawText) : null;
+
   if (rawText) {
     const trimmed = rawText.trim();
     const contentType = response.headers.get("content-type") ?? "";
+    const cleaned = trimmed.replace(/^\uFEFF/, "");
     const shouldParse =
-      contentType.includes("application/json") || trimmed.startsWith("{") || trimmed.startsWith("[");
+      contentType.includes("application/json") || cleaned.startsWith("{") || cleaned.startsWith("[");
     if (shouldParse) {
       try {
-        data = JSON.parse(trimmed) as BaselineStatusResponse;
+        data = JSON.parse(cleaned) as BaselineStatusResponse;
       } catch (error) {
         data = null;
       }
@@ -229,13 +274,27 @@ export async function fetchBaselineStatus(email: string): Promise<BaselineStatus
     if (response.status === 404) {
       return { hasBaseline: false };
     }
+    if (textResult) {
+      if (!textResult.hasBaseline && !response.ok) {
+        throw new Error(`기준 좌표 상태 요청 실패 (${response.status})`);
+      }
+      return textResult;
+    }
     if (!response.ok) {
       throw new Error(`기준 좌표 상태 요청 실패 (${response.status})`);
     }
     return { hasBaseline: false };
   }
 
-  const hasBaseline = coerceBaselinePresence(data);
+  let hasBaseline = coerceBaselinePresence(data);
+  if (!hasBaseline && textResult?.hasBaseline) {
+    hasBaseline = true;
+  }
+
+  const updatedAt =
+    typeof data.updated_at === "string" && data.updated_at
+      ? data.updated_at
+      : textResult?.updatedAt;
 
   if (response.ok) {
     if (data.ok === false) {
@@ -246,12 +305,16 @@ export async function fetchBaselineStatus(email: string): Promise<BaselineStatus
     }
     return {
       hasBaseline,
-      updatedAt: typeof data.updated_at === "string" ? data.updated_at : undefined,
+      updatedAt,
     };
   }
 
   if (data.error === "baseline_not_set" || data.error === "baseline_missing") {
     return { hasBaseline: false };
+  }
+
+  if (textResult) {
+    return textResult;
   }
 
   throw new Error(baselineStatusErrorMessage(data.error));
