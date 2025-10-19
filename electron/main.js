@@ -7,6 +7,7 @@ const {
   Menu,
   ipcMain,
   nativeImage,
+  Notification,
 } = require("electron");
 const path = require("path");
 
@@ -15,6 +16,59 @@ const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || "http://localhost
 
 let mainWindow = null;
 let tray = null;
+let hiddenToTray = false;
+
+let badPostureSince = null;
+let lastNotificationAt = 0;
+
+const GOOD_LABEL_KEYS = new Set(["good_posture", "정상", "normal"]);
+
+function normalizeLabel(value) {
+  if (typeof value !== "string") return "";
+  return value.trim().toLowerCase();
+}
+
+function resetPostureTracking() {
+  badPostureSince = null;
+}
+
+function handlePostureEvent(payload = {}) {
+  if (!hiddenToTray) {
+    resetPostureTracking();
+    return;
+  }
+
+  const normalized = normalizeLabel(payload.label);
+  const isGood = GOOD_LABEL_KEYS.has(normalized);
+
+  if (isGood) {
+    resetPostureTracking();
+    return;
+  }
+
+  const now = Date.now();
+  if (badPostureSince === null) {
+    badPostureSince = now;
+    return;
+  }
+
+  const duration = now - badPostureSince;
+  if (duration < 3000) return;
+
+  const THROTTLE_MS = 60 * 1000;
+  if (now - lastNotificationAt < THROTTLE_MS) return;
+
+  lastNotificationAt = now;
+
+  if (Notification.isSupported()) {
+    const notification = new Notification({
+      title: "자세 주의",
+      body: "나쁜 자세가 3초 이상 지속되고 있어요. 자세를 바로 잡아주세요!",
+      silent: false,
+    });
+    notification.show();
+  }
+}
 
 const TRAY_EVENT = "posecare:tray-restored";
 
@@ -60,6 +114,9 @@ function hideWindow() {
   ensureTray();
   mainWindow.hide();
   mainWindow.setSkipTaskbar(true);
+  hiddenToTray = true;
+  resetPostureTracking();
+  lastNotificationAt = 0;
   return true;
 }
 
@@ -68,6 +125,9 @@ function showWindow() {
   ensureTray();
   mainWindow.show();
   mainWindow.setSkipTaskbar(false);
+  hiddenToTray = false;
+  resetPostureTracking();
+  lastNotificationAt = 0;
   mainWindow.focus();
   if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send(TRAY_EVENT);
@@ -77,6 +137,13 @@ function showWindow() {
 
 ipcMain.handle("app:minimize-to-tray", () => hideWindow());
 ipcMain.handle("app:restore-from-tray", () => showWindow());
+ipcMain.on("posecare:posture-event", (_event, payload) => {
+  try {
+    handlePostureEvent(payload || {});
+  } catch (error) {
+    console.error("Failed to process posture event", error);
+  }
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({

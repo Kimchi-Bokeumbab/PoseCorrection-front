@@ -148,6 +148,9 @@ export default function RealtimePanel({
           if (data?.label) {
             setLastLabel(data.label);
             setStatus("collect");
+            if (typeof window !== "undefined") {
+              window.posecare?.reportPostureEvent?.({ label: data.label });
+            }
           }
           bufRef.current = B.slice(-3);
         } catch (e) {
