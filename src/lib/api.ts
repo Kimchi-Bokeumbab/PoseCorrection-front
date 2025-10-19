@@ -124,40 +124,64 @@ export async function setInitialBaseline({
   return data;
 }
 
+function extractArrayLength(value: unknown, depth = 0): number {
+  if (!value) return 0;
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return 0;
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return extractArrayLength(parsed, depth + 1);
+      } catch (error) {
+        return 0;
+      }
+    }
+    return 0;
+  }
+
+  if (typeof value === "object" && depth < 5) {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      const len = extractArrayLength(nested, depth + 1);
+      if (len > 0) {
+        return len;
+      }
+    }
+  }
+
+  return 0;
+}
+
 function coerceBaselinePresence(data: BaselineStatusResponse | null | undefined) {
   if (!data) return false;
   if (typeof data.has_baseline === "boolean") {
     return data.has_baseline;
   }
 
-  const baselineCandidate = (data as { baseline?: unknown }).baseline;
-  if (Array.isArray(baselineCandidate)) {
-    return baselineCandidate.length > 0;
+  const candidates: unknown[] = [];
+  if ("baseline" in (data ?? {})) {
+    candidates.push((data as { baseline?: unknown }).baseline);
   }
-  if (typeof baselineCandidate === "string") {
-    try {
-      const parsed = JSON.parse(baselineCandidate);
-      if (Array.isArray(parsed)) {
-        return parsed.length > 0;
-      }
-    } catch (error) {
-      // ignore parse errors and fall through to other checks
+  if ("baseline21" in (data ?? {})) {
+    candidates.push((data as { baseline21?: unknown }).baseline21);
+  }
+  if ("data" in (data ?? {})) {
+    candidates.push((data as { data?: unknown }).data);
+  }
+
+  for (const candidate of candidates) {
+    const len = extractArrayLength(candidate);
+    if (len > 0) {
+      return true;
     }
   }
 
-  const baseline21Candidate = (data as { baseline21?: unknown }).baseline21;
-  if (Array.isArray(baseline21Candidate)) {
-    return baseline21Candidate.length > 0;
-  }
-  if (typeof baseline21Candidate === "string") {
-    try {
-      const parsed = JSON.parse(baseline21Candidate);
-      if (Array.isArray(parsed)) {
-        return parsed.length > 0;
-      }
-    } catch (error) {
-      // ignore parse errors and fall through to default false
-    }
+  if (extractArrayLength(data) > 0) {
+    return true;
   }
 
   return false;
