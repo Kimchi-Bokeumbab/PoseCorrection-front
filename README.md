@@ -25,7 +25,7 @@
 
 ## 기술 스택
 - **프로그래밍 언어**: Python
-- **AI 모델**: [사용한 딥러닝 프레임워크 이름 (예: TensorFlow, PyTorch)]
+- **AI 모델**: pytorch를 사용한 RNN 모델
 - **이미지 처리**: OpenCV
 - **웹캠 사용**: MediaPipe 또는 기타 관련 라이브러리
 
