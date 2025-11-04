@@ -85,7 +85,7 @@ const STRETCH_LIBRARY: Record<StretchId, StretchGuide> = {
     id: "chin_tuck",
     label: "거북목",
     title: "턱 당기기 (Chin Tuck)",
-    video: "forward_head_chin_tuck.mp4",
+    video: "forward_head_stretching.mp4",
     duration: "5초 유지 × 10회",
     purposes: [
       "SCM, 사각근, 흉근 스트레칭",
@@ -110,6 +110,46 @@ const LABEL_TO_STRETCH_ID: Record<string, StretchId> = {
 
 function normalizeLabel(label: string) {
   return label.trim();
+}
+
+function StretchVideoPlayer({ filename, title }: { filename: string; title: string }) {
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    setStatus("loading");
+  }, [filename]);
+
+  return (
+    <div className="space-y-2 rounded-lg border bg-muted/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium text-foreground">
+        <span>{title} 시연 영상</span>
+        <Badge variant="outline" className="text-xs font-normal">
+          {filename}
+        </Badge>
+      </div>
+      <div className="space-y-2">
+        <video
+          key={filename}
+          controls
+          preload="metadata"
+          className="w-full rounded-md border bg-black/80"
+          onLoadedData={() => setStatus("ready")}
+          onError={() => setStatus("error")}
+        >
+          <source src={`/videos/${filename}`} type="video/mp4" />
+          사용 중인 브라우저에서는 비디오 태그를 지원하지 않습니다.
+        </video>
+        {status === "loading" ? (
+          <p className="text-xs text-muted-foreground">영상 로딩 중…</p>
+        ) : null}
+        {status === "error" ? (
+          <p className="text-xs text-red-600">
+            영상 파일을 불러오지 못했습니다. <code>{`public/videos/${filename}`}</code> 경로를 확인해주세요.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function createRecommendations(summary: PostureStatsSummary | null): StretchWithStats[] {
@@ -162,14 +202,7 @@ function StretchCard({ data }: { data: StretchWithStats }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-1 rounded-lg border bg-muted/40 p-4 text-xs text-muted-foreground">
-          <div className="font-medium text-foreground">영상 파일명</div>
-          <div>{data.video} (추가 예정)</div>
-          <p>
-            준비된 영상이 있다면 <code>public/videos/{data.video}</code> 경로에 파일을 추가하고,
-            필요 시 카드 컴포넌트를 수정해 플레이어를 연결하세요.
-          </p>
-        </div>
+        <StretchVideoPlayer filename={data.video} title={data.title} />
         <div className="space-y-2">
           <div className="text-sm font-medium text-emerald-700">🎯 목적</div>
           <ul className="text-sm list-disc list-inside space-y-1 text-muted-foreground">
@@ -288,19 +321,12 @@ export default function StretchPanel({ userEmail }: { userEmail: string }) {
                   </span>
                   <Badge variant="outline">{guide.duration}</Badge>
                 </CardTitle>
-                <CardDescription>
-                  {guide.label} 자세가 자주 관찰될 때 완화를 돕는 스트레칭
-                </CardDescription>
-              </CardHeader>
+              <CardDescription>
+                {guide.label} 자세가 자주 관찰될 때 완화를 돕는 스트레칭
+              </CardDescription>
+            </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-1 rounded-lg border bg-muted/40 p-4 text-xs text-muted-foreground">
-                  <div className="font-medium text-foreground">영상 파일명</div>
-                  <div>{guide.video} (추가 예정)</div>
-                  <p>
-                    실제 촬영 영상을 <code>public/videos/{guide.video}</code> 경로에 배치한 뒤,
-                    필요하면 카드에 플레이어를 추가해 재생할 수 있습니다.
-                  </p>
-                </div>
+                <StretchVideoPlayer filename={guide.video} title={guide.title} />
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-emerald-700">🎯 목적</div>
                   <ul className="text-sm list-disc list-inside space-y-1 text-muted-foreground">
