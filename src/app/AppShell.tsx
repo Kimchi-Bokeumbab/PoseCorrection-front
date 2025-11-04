@@ -99,7 +99,7 @@ export default function AppShell({
                 )}
                 {tab === "stretch" && (
                   <motion.div key="stretch" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
-                    <StretchPanel/>
+                    <StretchPanel userEmail={userEmail} />
                   </motion.div>
                 )}
               </AnimatePresence>
