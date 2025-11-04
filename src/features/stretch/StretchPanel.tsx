@@ -120,13 +120,8 @@ function StretchVideoPlayer({ filename, title }: { filename: string; title: stri
   }, [filename]);
 
   return (
-    <div className="space-y-2 rounded-lg border bg-muted/40 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium text-foreground">
-        <span>{title} 시연 영상</span>
-        <Badge variant="outline" className="text-xs font-normal">
-          {filename}
-        </Badge>
-      </div>
+    <div className="space-y-3 rounded-lg border bg-muted/40 p-4">
+      <div className="text-sm font-medium text-foreground">{title} 시연 영상</div>
       <div className="space-y-2">
         <video
           key={filename}
