@@ -283,7 +283,9 @@ export default function StretchPanel({ userEmail }: { userEmail: string }) {
                   </span>
                   <Badge variant="outline">{guide.duration}</Badge>
                 </CardTitle>
-                <CardDescription>예방용 추천 스트레칭</CardDescription>
+                <CardDescription>
+                  {guide.label} 자세가 자주 관찰될 때 완화를 돕는 스트레칭
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="aspect-video rounded-xl border bg-muted grid place-items-center text-xs text-muted-foreground">
